@@ -76,6 +76,29 @@ jobs:
       - name: Check library crates for wasm32
         run: cargo xtask wasm
 
+  android:
+    name: android APK (aarch64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+      - name: Install cargo-apk
+        run: cargo install cargo-apk --locked
+      - name: Build the debug APK (the runner's SDK and NDK)
+        env:
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: cargo xtask android
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: printcraft-android-debug
+          path: target/debug/apk/printcraft.apk
+
   deny:
     name: dependency licences and advisories
     runs-on: ubuntu-latest

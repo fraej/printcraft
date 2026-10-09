@@ -13,13 +13,13 @@
 <p align="center">
   <b>The PDF workbench; an open-source, clean-room reimplementation of Adobe Acrobat, rebuilt in pure Rust.</b><br>
   Read, organize, combine, split and secure PDFs in a fast, native app, written in Rust from the ground up.<br>
-  macOS · Windows · Linux · FreeBSD · the web
+  macOS · Windows · Linux · FreeBSD · Android · the web
 </p>
 
 <p align="center">
   <img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-12a58a">
   <img alt="Written in Rust" src="https://img.shields.io/badge/written%20in-Rust-0a7563">
-  <img alt="Platforms: macOS, Windows, Linux, FreeBSD, web" src="https://img.shields.io/badge/runs%20on-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux%20%C2%B7%20FreeBSD%20%C2%B7%20web-12a58a">
+  <img alt="Platforms: macOS, Windows, Linux, FreeBSD, Android, web" src="https://img.shields.io/badge/runs%20on-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux%20%C2%B7%20FreeBSD%20%C2%B7%20Android%20%C2%B7%20web-12a58a">
   <img alt="No account, no telemetry" src="https://img.shields.io/badge/no%20account-no%20telemetry-0a7563">
 </p>
 
@@ -256,7 +256,7 @@ Press <kbd>⌘K</kbd> to search every tool and command, or browse the **All tool
 
 ## Runs everywhere, stays yours
 
-- **Native on macOS, Windows, Linux and FreeBSD**, and **in the browser** through WebAssembly, from the same Rust codebase.
+- **Native on macOS, Windows, Linux, FreeBSD and Android**, and **in the browser** through WebAssembly, from the same Rust codebase. On a phone the same app switches to a one-column layout (see [Android](#android)).
 - **Private by design.** Documents never leave your machine. There's no account, no telemetry and no cloud processing.
 - **Engine first.** Parsing, rendering and editing live in reusable library crates. The interface is one swappable layer on top.
 - **Scriptable.** The `printcraft-cli` tool (see [Built for agents, too](#built-for-agents-too)) covers inspecting, rendering, extracting text, editing, combining, extracting pages and splitting. Robustness sweeps run on the same engine as the app.
@@ -325,7 +325,7 @@ PrintCraft is a Cargo workspace of focused crates, layered so the core never dep
 | `printcraft-render` | Rendering, inspection and text extraction with reading order |
 | `printcraft-engine` | The façade every frontend uses: sessions, edits, undo, saving, the tool catalogue |
 | `printcraft-automation` | Agent control: the headless tool table, `printcraft-cli run`, and the opt-in MCP server |
-| `printcraft-ui-egui` | The desktop and web interface |
+| `printcraft-ui-egui` | The desktop, phone and web interface |
 
 **Quality gates.** Every change passes the same automated checks:
 - formatting, and Clippy with warnings as errors;
@@ -350,6 +350,28 @@ cargo run --release -p printcraft -- some.pdf     # desktop app
 cargo xtask demo-pdf                              # build the showcase PDF used in these screenshots
 cargo xtask screenshots                           # regenerate every screenshot in this README
 ```
+
+### Android
+
+PrintCraft runs natively on Android 11 and later (64-bit ARM): the Rust engine and interface compile to a native library that Android starts through `NativeActivity`, drawing with the GPU. There is no web view. Windows narrower than 600 points, which means phones, use a phone layout:
+- an app bar with Back, the document's name (tap it to switch documents), the page (tap it to jump), Find, Save and a menu;
+- a navigation bar with **Tools**, **Comment**, **Fill & Sign**, **Pages** and **Panels**, each opening a sheet over the lower half of the page;
+- a row of quick tools along the bottom of the page: Select, Hand, the comment tools and Fill & Sign;
+- pages that fit the screen's width, one finger to pan, two to zoom, and Back to close the top layer, then leave the document, then the app.
+
+Tablets in landscape get the desktop layout.
+
+To open files, use "Open with PrintCraft" or Share ▸ PrintCraft from another app, or PrintCraft's own file browser, which also handles Save as. The browser asks once for All files access so it can see your Downloads and Documents and save in place. Without that access it uses PrintCraft's own folder.
+
+Build it with the Android SDK (platform 35), the NDK and `cargo install cargo-apk`:
+
+```sh
+rustup target add aarch64-linux-android
+cargo xtask android --install    # builds target/debug/apk/printcraft.apk and installs it over adb
+cargo xtask android --emulator --install    # the same for the x86_64 emulator (rustup target add x86_64-linux-android)
+```
+
+Not yet on Android: the system clipboard for images, screen readers (eframe offers AccessKit only with GameActivity), printing, and opening a second file through "Open with" while PrintCraft is already running (close it first, or use its file browser).
 
 ## What's next
 

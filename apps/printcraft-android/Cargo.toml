@@ -1,0 +1,89 @@
+[package]
+name = "printcraft-android"
+description = "PrintCraft for Android phones and tablets (build with `cargo xtask android`)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# The workspace forbids `unsafe_code`. Android loads the app by its exported `android_main`
+# symbol, and exporting a symbol (`#[unsafe(no_mangle)]`) counts as unsafe code, so this crate
+# denies it instead and allows it on that one function. There are no `unsafe` blocks.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+printcraft-ui-egui = { workspace = true }
+egui = { workspace = true }
+log = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# OpenGL ES through glow: the renderer egui uses on Android (wgpu's GLES surface fails on the
+# emulator; Vulkan isn't on every phone).
+eframe = { workspace = true, features = ["default_fonts", "glow", "persistence", "android-native-activity"] }
+# NativeOptions::android_app (the version winit uses).
+android-activity = { version = "0.6", features = ["native-activity"] }
+# The same version android-activity uses: its JavaVM is ours (`JavaVM::singleton`).
+jni = "0.22"
+android_logger = { version = "0.15", default-features = false }
+
+# `cargo apk` (cargo-apk 0.10) reads this to write AndroidManifest.xml; `cargo xtask android`
+# fills `res/` first (the launcher icon and the `PrintCraft` theme).
+[package.metadata.android]
+package = "ai.storyteller.printcraft"
+apk_name = "printcraft"
+build_targets = ["aarch64-linux-android"]
+resources = "res"
+strip = "strip"
+
+[package.metadata.android.sdk]
+# Android 11: All files access (MANAGE_EXTERNAL_STORAGE) exists from here on.
+min_sdk_version = 30
+# Android 15 draws apps that target it under the system bars; the theme opts out until the
+# shell handles window insets (xtask/src/android.rs).
+target_sdk_version = 35
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.MANAGE_EXTERNAL_STORAGE"
+
+[package.metadata.android.application]
+label = "PrintCraft"
+icon = "@mipmap/ic_launcher"
+theme = "@style/PrintCraft"
+extract_native_libs = true
+
+[package.metadata.android.application.activity]
+label = "PrintCraft"
+# One window: "Open with PrintCraft" brings it back instead of starting a second copy.
+launch_mode = "singleTask"
+# Rotation, folding and the keyboard resize the window; they don't restart the app.
+config_changes = "orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+exported = true
+
+# Open with PrintCraft (files, downloads, browsers, mail).
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.VIEW"]
+categories = ["android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"]
+
+[[package.metadata.android.application.activity.intent_filter.data]]
+scheme = "content"
+mime_type = "application/pdf"
+
+[[package.metadata.android.application.activity.intent_filter.data]]
+scheme = "file"
+mime_type = "application/pdf"
+
+# Share ▸ PrintCraft.
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.SEND"]
+categories = ["android.intent.category.DEFAULT"]
+
+[[package.metadata.android.application.activity.intent_filter.data]]
+mime_type = "application/pdf"

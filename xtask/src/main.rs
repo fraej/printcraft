@@ -2,6 +2,7 @@
 
 use std::process::ExitCode;
 
+mod android;
 mod assets;
 mod demo_pdf;
 mod fuzz;
@@ -28,6 +29,7 @@ const COMMANDS: &[(&str, &str, Command)] = &[
     ("text-oracle", "Compare text extraction with pdftotext over corpus/ (word F1; target median ≥ 0.97)", gates::text_oracle),
     ("screenshots", "Regenerate the README screenshots in docs/images/ and their ATTRIBUTION entries", screenshots::run),
     ("models", "Fetch the OCR models (ATTRIBUTION.toml kind = \"model\") into assets/models/, verified by SHA-256", assets::models),
+    ("android", "Build the Android APK with cargo-apk (--release, --install on a device, --emulator for x86_64)", android::run),
     ("demo-pdf", "Build dist/demo/printcraft-showcase.pdf (needs Google Chrome or Chromium)", demo_pdf::run),
 ];
 

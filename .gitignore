@@ -7,3 +7,5 @@ plan/
 .DS_Store
 /fuzz-out
 /assets/models
+/apps/printcraft-android/res
+/target-*

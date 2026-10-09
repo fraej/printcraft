@@ -87,6 +87,7 @@ pub const TABLE: &[(&str, Class)] = &[
     ("printcraft", Class::Exempt),
     ("cli", Class::Exempt),
     ("web", Class::Exempt),
+    ("android", Class::Exempt),
     ("xtask", Class::Exempt),
 ];
 
@@ -330,7 +331,7 @@ mod tests {
 
     #[test]
     fn apps_exempt() {
-        for app in ["printcraft", "printcraft-cli", "printcraft-web", "xtask"] {
+        for app in ["printcraft", "printcraft-cli", "printcraft-web", "printcraft-android", "xtask"] {
             assert!(check(&[c(app, &[("egui", Normal, false), ("printcraft-ui-egui", Normal, true)])]).is_empty());
         }
     }
