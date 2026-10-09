@@ -30,7 +30,12 @@ const TILE_THRESHOLD: f32 = 4096.0;
 const TILE: u32 = 1024;
 /// Longest side of the low-resolution backdrop drawn under tiles.
 const BASE_SIDE: f32 = 2048.0;
+/// The same two on a phone (see `document_area`).
+const PHONE_TILE_THRESHOLD: f32 = 1600.0;
+const PHONE_BASE_SIDE: f32 = 1024.0;
 const THUMB_W: f32 = 132.0;
+/// Bytes of page rasters turned into textures per frame (the rest wait for the next frame).
+const UPLOAD_BUDGET: usize = 8 << 20;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fit {
@@ -87,6 +92,8 @@ pub struct DocView {
     pub zoom: f32,
     pub fit: Fit,
     pub layout: PageLayout,
+    /// Horizontal gutter beside the pages (narrow on a phone, where the quick bar sits below).
+    pub side: f32,
     /// View rotation in degrees clockwise (0, 90, 180, 270); display only, never saved.
     pub rotation: u16,
     pub current: usize,
@@ -212,6 +219,7 @@ impl DocView {
             zoom: 1.0,
             fit: Fit::Width,
             layout: PageLayout::Continuous,
+            side: SIDE,
             rotation: 0,
             current: 0,
             organize: false,
@@ -602,15 +610,22 @@ impl DocView {
     }
 
     /// Pull finished renders into textures.
-    pub fn receive(&mut self, ctx: &egui::Context, pool: &RenderPool) {
+    /// Turn finished renders into textures; returns the bytes uploaded.
+    pub fn receive(&mut self, ctx: &egui::Context, pool: &RenderPool) -> usize {
         let mut got = false;
         // Inline (single-threaded, e.g. web) rendering happens inside try_recv: one page per frame.
         let budget = if pool.is_inline() { 1 } else { usize::MAX };
         let mut n = 0;
+        // Converting and uploading a raster stalls this frame: take about one full-screen page's
+        // worth per frame and leave the rest for the next, so a fling doesn't hitch when several
+        // pages land at once.
+        let mut bytes = 0usize;
         while n < budget
+            && bytes < UPLOAD_BUDGET
             && let Some(r) = pool.try_recv()
         {
             n += 1;
+            bytes = bytes.saturating_add(r.rgba.len());
             got = true;
             if r.request.kind == RequestKind::Text {
                 match r.text {
@@ -650,11 +665,12 @@ impl DocView {
         if got {
             ctx.request_repaint();
         }
+        bytes
     }
 
     fn fit_zoom(&mut self, info: &DocInfo) {
         let max_w = info.pages.iter().map(|p| self.display_size(p).0).fold(1.0, f32::max);
-        let avail_w = (self.viewport_w - 2.0 * SIDE).max(100.0);
+        let avail_w = (self.viewport_w - 2.0 * self.side).max(100.0);
         let per_row = if self.layout == PageLayout::TwoUp { 2.0 } else { 1.0 };
         match self.fit {
             Fit::Width => self.zoom = (avail_w - GAP * (per_row - 1.0)) / (max_w * PT * per_row),
@@ -683,7 +699,7 @@ impl DocView {
                 for p in &info.pages {
                     let (w, h) = self.display_size(p);
                     let size = vec2(w * s, h * s);
-                    rects.push(Rect::from_min_size(pos2(((content_w - size.x) / 2.0).max(SIDE), y), size));
+                    rects.push(Rect::from_min_size(pos2(((content_w - size.x) / 2.0).max(self.side), y), size));
                     y += size.y + GAP;
                 }
             }
@@ -698,7 +714,8 @@ impl DocView {
                     let sizes: Vec<Vec2> = pair.iter().map(|p| self.display_size(p)).map(|(w, h)| vec2(w * s, h * s)).collect();
                     let row_w: f32 = sizes.iter().map(|v| v.x).sum::<f32>() + GAP * (sizes.len() as f32 - 1.0);
                     let row_h = sizes.iter().map(|v| v.y).fold(0.0, f32::max);
-                    let mut x = if self.cover && ri == 0 { (content_w / 2.0 + GAP / 2.0).max(SIDE) } else { ((content_w - row_w) / 2.0).max(SIDE) };
+                    let mut x =
+                        if self.cover && ri == 0 { (content_w / 2.0 + GAP / 2.0).max(self.side) } else { ((content_w - row_w) / 2.0).max(self.side) };
                     for size in sizes {
                         rects.push(Rect::from_min_size(pos2(x, y + (row_h - size.y) / 2.0), size));
                         x += size.x + GAP;
@@ -931,7 +948,7 @@ pub fn document_area(app: &mut PrintCraftApp, index: usize, ui: &mut egui::Ui) {
         * view.zoom
         * PT
         * if view.layout == PageLayout::TwoUp { 2.0 } else { 1.0 };
-    let content_w = (max_w + 2.0 * SIDE).max(avail.width());
+    let content_w = (max_w + 2.0 * view.side).max(avail.width());
     let rects = view.layout(info, content_w);
     let visible_pages: Vec<usize> = match view.layout {
         PageLayout::Single => vec![view.current.min(rects.len() - 1)],
@@ -962,6 +979,10 @@ pub fn document_area(app: &mut PrintCraftApp, index: usize, ui: &mut egui::Ui) {
     let scale = view.render_scale(ppp);
     let tag = (scale * 1000.0) as u64;
     let hand = app.quick_tool == QuickTool::Hand;
+    let compact = app.compact;
+    // A phone uploads every page raster on its one UI thread: switch to tiles (only the visible
+    // ones, a few per frame) as soon as a zoomed page outgrows the screen, not at 4096 px.
+    let (tile_threshold, base_side) = if compact { (PHONE_TILE_THRESHOLD, PHONE_BASE_SIDE) } else { (TILE_THRESHOLD, BASE_SIDE) };
     let tool = app.quick_tool;
     // Text selection runs for the Select tool and for the markup tools (highlight…).
     let selects_text = match tool {
@@ -1024,9 +1045,13 @@ pub fn document_area(app: &mut PrintCraftApp, index: usize, ui: &mut egui::Ui) {
     }
 
     let out = scroll.show_viewport(ui, |ui, viewport| {
-        let (resp_rect, resp) = ui.allocate_exact_size(vec2(content_w, content_h), Sense::click_and_drag());
+        // On a phone the Hand tool leaves drags to the scroll area, which glides on after a fling;
+        // the page still takes taps (links, fields).
+        let touch_pan = hand && compact;
+        let sense = if touch_pan { Sense::click() } else { Sense::click_and_drag() };
+        let (resp_rect, resp) = ui.allocate_exact_size(vec2(content_w, content_h), sense);
         // The Hand tool pans: the content widget takes every drag, so scroll by its delta.
-        if hand {
+        if hand && !touch_pan {
             if resp.dragged() {
                 ui.scroll_with_delta(resp.drag_delta());
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -1046,7 +1071,9 @@ pub fn document_area(app: &mut PrintCraftApp, index: usize, ui: &mut egui::Ui) {
         let pointer = ui.input(|i| i.pointer.hover_pos());
         for &i in &visible_pages {
             let r = rects[i].translate(origin.to_vec2());
-            if !r.intersects(visible.expand(400.0)) {
+            // Pages this close to the view are drawn (and so rendered) ahead of time; on a phone a
+            // whole screen ahead, since a fling covers that in a moment.
+            if !r.intersects(visible.expand(if compact { visible.height().max(400.0) } else { 400.0 })) {
                 continue;
             }
             if r.intersects(visible) {
@@ -1084,10 +1111,10 @@ pub fn document_area(app: &mut PrintCraftApp, index: usize, ui: &mut egui::Ui) {
                 painter.galley(pos2(r.center().x - msg.size().x / 2.0, r.center().y), msg, Color32::BLACK);
             } else {
                 let (pw_pt, ph_pt) = (info.pages[i].width.max(1.0), info.pages[i].height.max(1.0));
-                let tiled = pw_pt.max(ph_pt) * scale > TILE_THRESHOLD;
+                let tiled = pw_pt.max(ph_pt) * scale > tile_threshold;
                 // Whole-page raster: sharp when small, a low-res backdrop when tiled.
                 let (want_scale, want_tag) = if tiled {
-                    let bs = BASE_SIDE / pw_pt.max(ph_pt);
+                    let bs = base_side / pw_pt.max(ph_pt);
                     (bs, (bs * 1000.0) as u64)
                 } else {
                     (scale, tag)
@@ -1668,7 +1695,10 @@ pub fn document_area(app: &mut PrintCraftApp, index: usize, ui: &mut egui::Ui) {
     if let Some((name, action)) = app.views[index].forms.button.take() {
         run_button(app, index, ui.ctx(), &name, action);
     }
-    quick_bar(app, avail, ui);
+    // On a phone an open sheet has the tools; the row would only cover the page.
+    if !(app.compact && app.phone_sheet.is_some()) {
+        quick_bar(app, avail, ui);
+    }
 }
 
 /// Run a push button's action (the ones that need no JavaScript engine).
@@ -1849,29 +1879,50 @@ fn notices(
         None
     };
     let (icon, text, fields) = msg?;
+    let compact = crate::compact::is_on(ui.ctx());
+    let mut dismiss = false;
+    let mut buttons = |ui: &mut egui::Ui| {
+        if fields {
+            let label = if view.highlight_fields { "Hide field highlights" } else { "Highlight fields" };
+            if crate::widgets::pill_button(ui, label, view.highlight_fields).clicked() {
+                view.highlight_fields = !view.highlight_fields;
+            }
+        }
+        if secured && crate::widgets::pill_button(ui, "Security settings", false).clicked() {
+            open_security = true;
+        }
+        if repaired && !secured && info.fields.is_empty() && crate::widgets::pill_button(ui, "Details", false).clicked() {
+            open_repairs = true;
+        }
+    };
     egui::Frame::NONE.fill(t.accent_soft).inner_margin(egui::Margin::symmetric(14, 7)).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.add(icons::image(icon, 16.0, t.accent_text));
-            ui.label(egui::RichText::new(text).color(t.text));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if icons::button(ui, "x", 22.0, false, "Dismiss").clicked() {
-                    view.notice_dismissed = true;
-                }
-                if fields {
-                    let label = if view.highlight_fields { "Hide field highlights" } else { "Highlight fields" };
-                    if crate::widgets::pill_button(ui, label, view.highlight_fields).clicked() {
-                        view.highlight_fields = !view.highlight_fields;
-                    }
-                }
-                if secured && crate::widgets::pill_button(ui, "Security settings", false).clicked() {
-                    open_security = true;
-                }
-                if repaired && !secured && info.fields.is_empty() && crate::widgets::pill_button(ui, "Details", false).clicked() {
-                    open_repairs = true;
+        if compact {
+            // A phone: the message wraps beside the close button, the actions go below it.
+            ui.horizontal_top(|ui| {
+                ui.add(icons::image(icon, 16.0, t.accent_text));
+                let w = (ui.available_width() - 40.0).max(80.0);
+                ui.allocate_ui(vec2(w, 0.0), |ui| ui.add(egui::Label::new(egui::RichText::new(text).color(t.text)).wrap()));
+                if icons::button(ui, "x", 32.0, false, "Dismiss").clicked() {
+                    dismiss = true;
                 }
             });
-        });
+            ui.horizontal_wrapped(|ui| buttons(ui));
+        } else {
+            ui.horizontal(|ui| {
+                ui.add(icons::image(icon, 16.0, t.accent_text));
+                ui.label(egui::RichText::new(text).color(t.text));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if icons::button(ui, "x", 22.0, false, "Dismiss").clicked() {
+                        dismiss = true;
+                    }
+                    buttons(ui);
+                });
+            });
+        }
     });
+    if dismiss {
+        view.notice_dismissed = true;
+    }
     if open_repairs {
         return Some(Notice::Repairs);
     }
@@ -1881,8 +1932,17 @@ fn notices(
 /// The floating quick-action bar at the left edge of the document area.
 fn quick_bar(app: &mut PrintCraftApp, area: Rect, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
-    let pos = area.left_top() + vec2(14.0, 14.0);
-    egui::Area::new(egui::Id::new("quick-bar")).order(egui::Order::Middle).fixed_pos(pos).show(ui.ctx(), |ui| {
+    // Desktop: a vertical strip at the top left, flyouts to the right. Phone: a row along the
+    // bottom of the page, flyouts above it, buttons sized for fingers.
+    let compact = app.compact;
+    let (pos, pivot) = if compact {
+        (area.center_bottom() - vec2(0.0, 12.0), Align2::CENTER_BOTTOM)
+    } else {
+        (area.left_top() + vec2(14.0, 14.0), Align2::LEFT_TOP)
+    };
+    let flyout = if compact { egui::RectAlign::TOP_START } else { egui::RectAlign::RIGHT_START };
+    let b = if compact { 40.0 } else { 32.0 };
+    egui::Area::new(egui::Id::new("quick-bar")).order(egui::Order::Middle).pivot(pivot).fixed_pos(pos).show(ui.ctx(), |ui| {
         egui::Frame::NONE
             .fill(t.card)
             .stroke(Stroke::new(1.0, t.border))
@@ -1890,12 +1950,12 @@ fn quick_bar(app: &mut PrintCraftApp, area: Rect, ui: &mut egui::Ui) {
             .shadow(egui::Shadow { offset: [0, 2], blur: 10, spread: 0, color: Color32::from_black_alpha(if t.dark() { 80 } else { 22 }) })
             .inner_margin(egui::Margin::same(4))
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 2.0;
-                ui.vertical(|ui| {
-                    if icons::button(ui, "mouse-pointer-2", 32.0, app.quick_tool == QuickTool::Select, "Select (V)").clicked() {
+                ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+                let body = |ui: &mut egui::Ui| {
+                    if icons::button(ui, "mouse-pointer-2", b, app.quick_tool == QuickTool::Select, "Select (V)").clicked() {
                         app.quick_tool = QuickTool::Select;
                     }
-                    if icons::button(ui, "hand", 32.0, app.quick_tool == QuickTool::Hand, "Hand (H)").clicked() {
+                    if icons::button(ui, "hand", b, app.quick_tool == QuickTool::Hand, "Hand (H)").clicked() {
                         app.quick_tool = QuickTool::Hand;
                     }
                     // Comment ▸, Highlight ▸, Draw ▸ (Acrobat's comment toolbar groups). Clicking a
@@ -1903,7 +1963,7 @@ fn quick_bar(app: &mut PrintCraftApp, area: Rect, ui: &mut egui::Ui) {
                     for g in 0..comments::GROUPS.len() {
                         let current = app.comment_prefs.group_tool[g];
                         let active = matches!(app.quick_tool, QuickTool::Comment(t) if t.group() == g);
-                        let resp = icons::button(ui, current.icon(), 32.0, active, current.label());
+                        let resp = icons::button(ui, current.icon(), b, active, current.label());
                         // A small corner triangle marks the flyout.
                         let r = resp.rect;
                         let tri = [r.right_bottom() + vec2(-4.0, -4.0), r.right_bottom() + vec2(-9.0, -4.0), r.right_bottom() + vec2(-4.0, -9.0)];
@@ -1912,74 +1972,9 @@ fn quick_bar(app: &mut PrintCraftApp, area: Rect, ui: &mut egui::Ui) {
                         if resp.clicked() && !active {
                             app.execute(current.command());
                         }
-                        egui::Popup::menu(&resp)
-                            .open_memory(open.then_some(egui::SetOpenCommand::Toggle))
-                            .align(egui::RectAlign::RIGHT_START)
-                            .gap(6.0)
-                            .show(|ui| {
-                                for tool in comments::GROUPS[g] {
-                                    let on = app.quick_tool == QuickTool::Comment(*tool);
-                                    let (row, click) = ui.allocate_exact_size(vec2(180.0, 28.0), Sense::click());
-                                    if click.hovered() {
-                                        ui.painter().rect_filled(row, CornerRadius::same(4), t.hover);
-                                    }
-                                    icons::paint(ui, Rect::from_min_size(row.min + vec2(8.0, 6.0), vec2(16.0, 16.0)), tool.icon(), 16.0, t.text);
-                                    ui.painter().text(
-                                        row.left_center() + vec2(34.0, 0.0),
-                                        Align2::LEFT_CENTER,
-                                        tool.label(),
-                                        theme::regular(13.0),
-                                        t.text,
-                                    );
-                                    if on {
-                                        icons::paint(
-                                            ui,
-                                            Rect::from_min_size(row.right_top() + vec2(-24.0, 7.0), vec2(14.0, 14.0)),
-                                            "check",
-                                            14.0,
-                                            t.accent,
-                                        );
-                                    }
-                                    let click = click.on_hover_cursor(egui::CursorIcon::PointingHand);
-                                    click.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, tool.label()));
-                                    if click.clicked() {
-                                        app.execute(tool.command());
-                                        ui.close();
-                                    }
-                                }
-                            });
-                    }
-                    // Fill & Sign ▸ (text, marks, date, signature).
-                    let current_fill = match app.quick_tool {
-                        QuickTool::Fill(f) => Some(f),
-                        _ => None,
-                    };
-                    let shown = current_fill.unwrap_or(crate::fill_sign::FillTool::Text);
-                    let resp = icons::button(
-                        ui,
-                        if current_fill.is_some() { shown.icon() } else { "pen-line" },
-                        32.0,
-                        current_fill.is_some(),
-                        "Fill & Sign",
-                    );
-                    let r = resp.rect;
-                    let tri = [r.right_bottom() + vec2(-4.0, -4.0), r.right_bottom() + vec2(-9.0, -4.0), r.right_bottom() + vec2(-4.0, -9.0)];
-                    ui.painter().add(egui::Shape::convex_polygon(
-                        tri.to_vec(),
-                        if current_fill.is_some() { Color32::WHITE } else { t.text_muted },
-                        Stroke::NONE,
-                    ));
-                    if resp.clicked() && current_fill.is_none() {
-                        app.execute(shown.command());
-                    }
-                    let open = (resp.clicked() && current_fill.is_some()) || resp.secondary_clicked();
-                    egui::Popup::menu(&resp)
-                        .open_memory(open.then_some(egui::SetOpenCommand::Toggle))
-                        .align(egui::RectAlign::RIGHT_START)
-                        .gap(6.0)
-                        .show(|ui| {
-                            for tool in crate::fill_sign::FILL_TOOLS {
-                                let on = current_fill == Some(tool);
+                        egui::Popup::menu(&resp).open_memory(open.then_some(egui::SetOpenCommand::Toggle)).align(flyout).gap(6.0).show(|ui| {
+                            for tool in comments::GROUPS[g] {
+                                let on = app.quick_tool == QuickTool::Comment(*tool);
                                 let (row, click) = ui.allocate_exact_size(vec2(180.0, 28.0), Sense::click());
                                 if click.hovered() {
                                     ui.painter().rect_filled(row, CornerRadius::same(4), t.hover);
@@ -2001,6 +1996,7 @@ fn quick_bar(app: &mut PrintCraftApp, area: Rect, ui: &mut egui::Ui) {
                                         t.accent,
                                     );
                                 }
+                                let click = click.on_hover_cursor(egui::CursorIcon::PointingHand);
                                 click.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, tool.label()));
                                 if click.clicked() {
                                     app.execute(tool.command());
@@ -2008,12 +2004,61 @@ fn quick_bar(app: &mut PrintCraftApp, area: Rect, ui: &mut egui::Ui) {
                                 }
                             }
                         });
-                    if let QuickTool::Comment(tool) = app.quick_tool {
-                        let (r, _) = ui.allocate_exact_size(vec2(32.0, 9.0), Sense::hover());
-                        ui.painter().hline(r.x_range().shrink(6.0), r.center().y, Stroke::new(1.0, t.divider));
-                        comments::quick_bar_controls(ui, tool, &mut app.comment_prefs);
                     }
-                });
+                    // Fill & Sign ▸ (text, marks, date, signature).
+                    let current_fill = match app.quick_tool {
+                        QuickTool::Fill(f) => Some(f),
+                        _ => None,
+                    };
+                    let shown = current_fill.unwrap_or(crate::fill_sign::FillTool::Text);
+                    let resp =
+                        icons::button(ui, if current_fill.is_some() { shown.icon() } else { "pen-line" }, b, current_fill.is_some(), "Fill & Sign");
+                    let r = resp.rect;
+                    let tri = [r.right_bottom() + vec2(-4.0, -4.0), r.right_bottom() + vec2(-9.0, -4.0), r.right_bottom() + vec2(-4.0, -9.0)];
+                    ui.painter().add(egui::Shape::convex_polygon(
+                        tri.to_vec(),
+                        if current_fill.is_some() { Color32::WHITE } else { t.text_muted },
+                        Stroke::NONE,
+                    ));
+                    if resp.clicked() && current_fill.is_none() {
+                        app.execute(shown.command());
+                    }
+                    let open = (resp.clicked() && current_fill.is_some()) || resp.secondary_clicked();
+                    egui::Popup::menu(&resp).open_memory(open.then_some(egui::SetOpenCommand::Toggle)).align(flyout).gap(6.0).show(|ui| {
+                        for tool in crate::fill_sign::FILL_TOOLS {
+                            let on = current_fill == Some(tool);
+                            let (row, click) = ui.allocate_exact_size(vec2(180.0, 28.0), Sense::click());
+                            if click.hovered() {
+                                ui.painter().rect_filled(row, CornerRadius::same(4), t.hover);
+                            }
+                            icons::paint(ui, Rect::from_min_size(row.min + vec2(8.0, 6.0), vec2(16.0, 16.0)), tool.icon(), 16.0, t.text);
+                            ui.painter().text(row.left_center() + vec2(34.0, 0.0), Align2::LEFT_CENTER, tool.label(), theme::regular(13.0), t.text);
+                            if on {
+                                icons::paint(ui, Rect::from_min_size(row.right_top() + vec2(-24.0, 7.0), vec2(14.0, 14.0)), "check", 14.0, t.accent);
+                            }
+                            click.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, tool.label()));
+                            if click.clicked() {
+                                app.execute(tool.command());
+                                ui.close();
+                            }
+                        }
+                    });
+                    if let QuickTool::Comment(tool) = app.quick_tool {
+                        if compact {
+                            let (r, _) = ui.allocate_exact_size(vec2(9.0, b), Sense::hover());
+                            ui.painter().vline(r.center().x, r.y_range().shrink(6.0), Stroke::new(1.0, t.divider));
+                        } else {
+                            let (r, _) = ui.allocate_exact_size(vec2(32.0, 9.0), Sense::hover());
+                            ui.painter().hline(r.x_range().shrink(6.0), r.center().y, Stroke::new(1.0, t.divider));
+                        }
+                        comments::quick_bar_controls(ui, tool, &mut app.comment_prefs, flyout, b);
+                    }
+                };
+                if compact {
+                    ui.horizontal(body);
+                } else {
+                    ui.vertical(body);
+                }
             });
     });
 }

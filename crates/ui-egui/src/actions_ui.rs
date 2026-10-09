@@ -46,7 +46,7 @@ impl PrintCraftApp {
         #[cfg(not(target_arch = "wasm32"))]
         let dir = match &self.export_dir_override {
             Some(d) => Some(std::path::PathBuf::from(d)),
-            None => rfd::FileDialog::new().set_title("Choose a folder for the results").pick_folder(),
+            None => crate::pick::FileDialog::new().set_title("Choose a folder for the results").pick_folder(),
         };
         #[cfg(not(target_arch = "wasm32"))]
         let Some(dir) = dir else { return };
@@ -120,7 +120,7 @@ impl PrintCraftApp {
         {
             let paths = match &self.action_files_override {
                 Some(p) => p.iter().map(std::path::PathBuf::from).collect(),
-                None => rfd::FileDialog::new()
+                None => crate::pick::FileDialog::new()
                     .set_title(format!("Files for {}", action.name))
                     .add_filter("PDF", &["pdf"])
                     .pick_files()

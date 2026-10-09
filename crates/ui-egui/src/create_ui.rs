@@ -34,7 +34,7 @@ pub enum Clip {
 }
 
 /// An image on the system clipboard, or else its text.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
 fn read_clipboard() -> Option<Clip> {
     let mut cb = arboard::Clipboard::new().ok()?;
     if let Ok(img) = cb.get_image() {
@@ -93,9 +93,9 @@ impl PrintCraftApp {
     /// Create ▸ Clipboard: a new document from the image (one page, its size) or the text on
     /// the clipboard, as Acrobat does.
     pub(crate) fn create_from_clipboard(&mut self) {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
         let clip = read_clipboard();
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", target_os = "android"))]
         let clip: Option<Clip> = None;
         match clip {
             Some(c) => {
@@ -131,7 +131,7 @@ impl PrintCraftApp {
     pub(crate) fn create_from_images_dialog(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let Some(files) = rfd::FileDialog::new()
+            let Some(files) = crate::pick::FileDialog::new()
                 .add_filter("Images", &["png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "jp2", "j2k", "jpx"])
                 .set_title("Choose images")
                 .pick_files()
@@ -203,7 +203,11 @@ impl PrintCraftApp {
         {
             let path = match &self.save_override {
                 Some(p) => Some(p.clone()),
-                None => rfd::FileDialog::new().add_filter("PDF", &["pdf"]).set_file_name(&name).save_file().map(|p| p.to_string_lossy().into_owned()),
+                None => crate::pick::FileDialog::new()
+                    .add_filter("PDF", &["pdf"])
+                    .set_file_name(&name)
+                    .save_file()
+                    .map(|p| p.to_string_lossy().into_owned()),
             };
             let Some(path) = path else { return };
             match crate::editing::write_atomically(&path, &bytes) {

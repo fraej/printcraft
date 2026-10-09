@@ -1247,24 +1247,24 @@ pub fn swatch_grid(ui: &mut egui::Ui, current: Option<Rgb>) -> Option<Rgb> {
 }
 
 /// The comment tools' extra quick-bar controls: pin, colour and thickness.
-pub(crate) fn quick_bar_controls(ui: &mut egui::Ui, tool: CommentTool, prefs: &mut CommentPrefs) {
+pub(crate) fn quick_bar_controls(ui: &mut egui::Ui, tool: CommentTool, prefs: &mut CommentPrefs, flyout: egui::RectAlign, size: f32) {
     let style = prefs.style(tool);
-    if icons::button(ui, "pin", 32.0, prefs.pinned, if prefs.pinned { "Keep tool selected: on" } else { "Keep tool selected" }).clicked() {
+    if icons::button(ui, "pin", size, prefs.pinned, if prefs.pinned { "Keep tool selected: on" } else { "Keep tool selected" }).clicked() {
         prefs.pinned = !prefs.pinned;
     }
-    let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+    let (r, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
     ui.painter().circle_filled(r.center(), 9.0, color32(style.color));
     ui.painter().circle_stroke(r.center(), 9.0, Stroke::new(1.0, Color32::from_black_alpha(50)));
     let resp = resp.on_hover_text("Colour");
-    egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).show(|ui| {
+    egui::Popup::menu(&resp).align(flyout).show(|ui| {
         if let Some(c) = swatch_grid(ui, Some(style.color)) {
             prefs.set_color(tool, c);
             ui.close();
         }
     });
     if tool.has_width() {
-        let resp = icons::button(ui, "sliders-horizontal", 32.0, false, "Line thickness");
-        egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+        let resp = icons::button(ui, "sliders-horizontal", size, false, "Line thickness");
+        egui::Popup::menu(&resp).align(flyout).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
             ui.set_min_width(180.0);
             let mut w = style.width;
             ui.label(egui::RichText::new("Line thickness").font(theme::semibold(12.0)));

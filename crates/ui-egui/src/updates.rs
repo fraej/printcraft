@@ -117,7 +117,7 @@ pub(crate) fn dialog(app: &mut PrintCraftApp, ctx: &egui::Context) {
     let mut close = false;
     let mut download: Option<String> = None;
     let modal = egui::Modal::new(egui::Id::new("updates")).show(ctx, |ui| {
-        ui.set_width(420.0);
+        crate::compact::fit_width(ui, 420.0);
         ui.horizontal(|ui| {
             ui.add(crate::icons::image("cloud", 22.0, t.accent));
             ui.label(egui::RichText::new("Check for updates").font(theme::semibold(16.0)));

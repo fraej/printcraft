@@ -40,7 +40,7 @@ pub fn tab_strip(app: &mut PrintCraftApp, ui: &mut egui::Ui) {
                 }
                 ui.add_space(4.0);
                 if widgets::ghost_button(ui, "plus", "Open").on_hover_text("Open a PDF (⌘O)").clicked() {
-                    app.open_dialog();
+                    app.run_command("file.open");
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let (icon, next, tip) = match app.theme {
@@ -153,10 +153,17 @@ pub fn mode_bar(app: &mut PrintCraftApp, ui: &mut egui::Ui) {
 }
 
 fn main_menu(app: &mut PrintCraftApp, ui: &mut egui::Ui) {
-    let t = Tokens::get(ui.ctx());
     let resp = widgets::ghost_button(ui, "panel-left", "Menu");
     egui::Popup::menu(&resp).show(|ui| {
         ui.set_min_width(230.0);
+        main_menu_items(app, ui);
+    });
+}
+
+/// The main menu's submenus (File, Edit, Pages, View, Help).
+pub(crate) fn main_menu_items(app: &mut PrintCraftApp, ui: &mut egui::Ui) {
+    let t = Tokens::get(ui.ctx());
+    {
         ui.menu_button("File", |ui| crate::commands::registry_menu(app, ui, "File"));
         ui.menu_button("Edit", |ui| crate::commands::registry_menu(app, ui, "Edit"));
         ui.menu_button("Pages", |ui| crate::commands::registry_menu(app, ui, "Pages"));
@@ -252,7 +259,7 @@ fn main_menu(app: &mut PrintCraftApp, ui: &mut egui::Ui) {
             });
         });
         ui.menu_button("Help", |ui| crate::commands::registry_menu(app, ui, "Help"));
-    });
+    }
 }
 
 pub fn right_rail(app: &mut PrintCraftApp, ui: &mut egui::Ui) {

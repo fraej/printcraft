@@ -184,7 +184,7 @@ impl PrintCraftApp {
 
 /// Link Properties. Returns (apply, cancel).
 pub(crate) fn body(ui: &mut egui::Ui, d: &mut LinkDraft, pages: usize, t: &Tokens) -> (bool, bool) {
-    ui.set_width(460.0);
+    crate::compact::fit_width(ui, 460.0);
     ui.label(egui::RichText::new(if d.index.is_some() { "Link Properties" } else { "Create Link" }).font(theme::semibold(18.0)));
     ui.add_space(8.0);
     widgets::section_title(ui, "Link Appearance");

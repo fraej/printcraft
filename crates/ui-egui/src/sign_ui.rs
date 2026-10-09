@@ -298,7 +298,7 @@ impl PrintCraftApp {
         let path = match self.save_override.clone() {
             Some(p) => Some(PathBuf::from(p)),
             #[cfg(not(target_arch = "wasm32"))]
-            None => rfd::FileDialog::new().add_filter("PDF", &["pdf"]).set_file_name(format!("{stem}_signed.pdf")).save_file(),
+            None => crate::pick::FileDialog::new().add_filter("PDF", &["pdf"]).set_file_name(format!("{stem}_signed.pdf")).save_file(),
             #[cfg(target_arch = "wasm32")]
             None => None,
         };
@@ -486,7 +486,7 @@ fn configure(ui: &mut egui::Ui, app: &mut PrintCraftApp, t: &Tokens) -> bool {
                 ui.add(egui::TextEdit::singleline(&mut n.file).desired_width(220.0)).labelled_by(l.id);
                 #[cfg(not(target_arch = "wasm32"))]
                 if ui.button("Browse…").clicked()
-                    && let Some(p) = rfd::FileDialog::new().add_filter("Digital ID", &["p12", "pfx"]).pick_file()
+                    && let Some(p) = crate::pick::FileDialog::new().add_filter("Digital ID", &["p12", "pfx"]).pick_file()
                 {
                     n.file = p.to_string_lossy().into_owned();
                 }

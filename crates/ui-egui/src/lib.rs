@@ -9,6 +9,7 @@
 
 mod a11y_ui;
 mod actions_ui;
+pub mod browse;
 pub mod canvas;
 mod chrome;
 mod combine_ui;
@@ -16,6 +17,7 @@ mod commands;
 mod comment_props;
 pub mod comments;
 mod comments_panel;
+pub mod compact;
 mod compare_ui;
 pub mod control;
 mod create_ui;
@@ -46,12 +48,14 @@ mod editing;
 mod files;
 pub mod fill_sign;
 pub mod forms_ui;
+mod frame_log;
 mod home;
 mod icon_data;
 pub mod icons;
 mod pageboxes;
 mod palette;
 mod panels;
+pub mod pick;
 pub mod prepare;
 mod print_ui;
 pub use print_ui::{Handling as PrintHandling, PrintDraft, Which as PrintWhich};
@@ -420,6 +424,24 @@ pub struct PrintCraftApp {
     pub replace_draft: Option<files::ReplaceDraft>,
     /// The last web link the app asked the system to open (tests and automation).
     pub last_opened_url: Option<String>,
+    /// The in-app file browser (Android's file dialogs), when open.
+    pub browser: Option<browse::Browser>,
+    /// The folder the browser last chose from.
+    pub browse_dir: Option<std::path::PathBuf>,
+    /// The browser's starting places (the Android app sets them).
+    pub places: Vec<browse::Place>,
+    /// What the host platform offers beyond `std` (the Android app sets it).
+    pub platform: Option<std::sync::Arc<dyn browse::Platform>>,
+    /// This frame uses the phone layout (see `compact`).
+    pub compact: bool,
+    /// Force the phone layout on or off (tests, automation); `None` follows the window width.
+    pub compact_override: Option<bool>,
+    /// The phone layout's sheet, when open.
+    pub phone_sheet: Option<compact::Sheet>,
+    phone_seen: Option<compact::Seen>,
+    /// Log frames that take over 20 ms, with where the time went (the Android app turns it on).
+    pub frame_log: bool,
+    frame_clock: frame_log::FrameClock,
 }
 
 /// Settings for the Number pages dialog.
@@ -521,6 +543,16 @@ impl PrintCraftApp {
             control: None,
             bookmark_rename: None,
             last_opened_url: None,
+            browser: None,
+            browse_dir: None,
+            places: Vec::new(),
+            platform: None,
+            compact: false,
+            compact_override: None,
+            phone_sheet: None,
+            phone_seen: None,
+            frame_log: false,
+            frame_clock: Default::default(),
             protect_draft: Default::default(),
             boxes_draft: Default::default(),
             marks_draft: Default::default(),
@@ -610,8 +642,9 @@ impl PrintCraftApp {
         self.password_prompt = None;
         let doc = self.session.get(id).ok_or("the document could not be opened")?;
         let pages = doc.info.pages.len();
-        // Acrobat opens straight to the Comments panel when a document has comments.
-        if self.right.is_none() {
+        // Acrobat opens straight to the Comments panel when a document has comments (not on a
+        // phone, where the panel would cover the page).
+        if self.right.is_none() && !self.compact {
             self.right = if !doc.info.annotations.is_empty() {
                 Some(RightPanel::Comments)
             } else if !doc.info.outline.is_empty() {
@@ -622,6 +655,9 @@ impl PrintCraftApp {
         }
         let initial = doc.initial_view();
         self.views.push(DocView::new(id, &doc.info));
+        if self.compact {
+            self.phone_defaults();
+        }
         self.active = Some(self.views.len() - 1);
         self.apply_initial_view(self.views.len() - 1, &initial);
         if let Some(p) = path {
@@ -680,7 +716,7 @@ impl PrintCraftApp {
             }
             (Ok(bytes), false) => {
                 #[cfg(not(target_arch = "wasm32"))]
-                if let Some(path) = rfd::FileDialog::new().set_file_name(&att.name).save_file() {
+                if let Some(path) = crate::pick::FileDialog::new().set_file_name(&att.name).save_file() {
                     match std::fs::write(&path, &bytes) {
                         Ok(()) => self.notify(format!("Saved {}", path.display())),
                         Err(e) => self.notify(format!("Couldn't save: {e}")),
@@ -729,8 +765,10 @@ impl PrintCraftApp {
 
     pub fn open_dialog(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(p) =
-            rfd::FileDialog::new().add_filter("PDF", &["pdf"]).add_filter("Images and text (converted to PDF)", &create_ui::CONVERTIBLE).pick_file()
+        if let Some(p) = crate::pick::FileDialog::new()
+            .add_filter("PDF", &["pdf"])
+            .add_filter("Images and text (converted to PDF)", &create_ui::CONVERTIBLE)
+            .pick_file()
         {
             self.open_path(&p.to_string_lossy());
         }
@@ -792,6 +830,7 @@ impl PrintCraftApp {
     pub fn set_theme(&mut self, ctx: &egui::Context, kind: ThemeKind) {
         self.theme = kind;
         theme::apply(ctx, kind);
+        compact::style(ctx, self.compact);
     }
 
     /// Run a catalogue command. Commands that aren't implemented yet say which milestone ships them.
@@ -917,6 +956,21 @@ impl PrintCraftApp {
                 self.left_open = true;
             }
             ("left", _) => self.left_open = value != "closed",
+            // Phone layout: `--sheet tools|<tool id>|comments|bookmarks|pages|…|none`.
+            ("sheet", _) => match value {
+                "none" => self.phone_sheet = None,
+                "tools" => self.open_tool_sheet(None),
+                panel if self.set_option("panel", panel).is_ok() => {
+                    if let Some(p) = self.right {
+                        self.open_panel_sheet(p);
+                    }
+                }
+                tool => {
+                    let g = printcraft_engine::catalog::group(tool).ok_or_else(|| format!("unknown sheet {tool}"))?;
+                    self.open_tool_sheet(Some(g.id));
+                }
+            },
+            ("compact", _) => self.compact_override = Some(value != "off"),
             ("home", _) => self.active = None,
             ("dialog", _) => {
                 self.dialog = match value {
@@ -1092,6 +1146,7 @@ impl eframe::App for PrintCraftApp {
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let logic_start = frame_log::now(self.frame_log);
         self.ctx = Some(ctx.clone());
         if !self.styled {
             egui_extras::install_image_loaders(ctx);
@@ -1127,6 +1182,10 @@ impl eframe::App for PrintCraftApp {
             self.control = Some(control);
         }
         self.guard_quit(ctx);
+        // Android's Back button.
+        if ctx.input(|i| i.key_pressed(egui::Key::BrowserBack)) {
+            self.back(ctx);
+        }
         let now = ctx.input(|i| i.time);
         self.autosave_tick(now);
         self.poll_updates();
@@ -1136,15 +1195,28 @@ impl eframe::App for PrintCraftApp {
         self.poll_ocr();
         self.poll_action();
         self.process_file_requests();
+        self.poll_pick_requests();
         // Pull finished renders into textures for every open document.
+        let receive_start = frame_log::now(self.frame_log);
+        let mut uploaded = 0;
         for view in &mut self.views {
             if let Some(doc) = self.session.get(view.id) {
-                view.receive(ctx, &doc.renderer);
+                uploaded += view.receive(ctx, &doc.renderer);
             }
         }
+        self.frame_clock.logic(logic_start, receive_start, uploaded);
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        let start = frame_log::now(self.frame_log);
+        self.shell(ui, frame);
+        self.frame_clock.ui(start);
+    }
+}
+
+impl PrintCraftApp {
+    /// One frame of the interface (`eframe::App::ui`, timed when `frame_log` is on).
+    fn shell(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         // Fonts registered via set_fonts only take effect next frame; named families would panic now.
         if !self.fonts_ready {
@@ -1160,6 +1232,16 @@ impl eframe::App for PrintCraftApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.window_title = title;
         }
+        self.system_bars(ui);
+        let compact = self.compact_for(&ctx);
+        if compact != self.compact {
+            self.compact = compact;
+            theme::apply(&ctx, self.theme);
+            compact::style(&ctx, compact);
+            if compact {
+                self.phone_defaults();
+            }
+        }
         if self.full_screen && self.active.is_some() {
             // Full screen: the page, nothing else (Esc or ⌘L to leave).
             let t = theme::Tokens::get(&ctx);
@@ -1172,6 +1254,16 @@ impl eframe::App for PrintCraftApp {
                 },
             );
             dialogs::show(self, &ctx);
+            browse::show(self, &ctx);
+            return;
+        }
+        if self.compact {
+            compact::show(self, ui);
+            self.process_pending_edits();
+            palette::show(self, &ctx);
+            dialogs::show(self, &ctx);
+            browse::show(self, &ctx);
+            widgets::toast(self, &ctx);
             return;
         }
         chrome::tab_strip(self, ui);
@@ -1193,6 +1285,7 @@ impl eframe::App for PrintCraftApp {
         self.process_pending_edits();
         palette::show(self, &ctx);
         dialogs::show(self, &ctx);
+        browse::show(self, &ctx);
         widgets::toast(self, &ctx);
     }
 }

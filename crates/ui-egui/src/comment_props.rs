@@ -34,7 +34,7 @@ impl PrintCraftApp {
         let picked = match self.attach_override.take() {
             Some(f) => Some(f),
             #[cfg(not(target_arch = "wasm32"))]
-            None => rfd::FileDialog::new().set_title("Attach a file").pick_file().and_then(|p| {
+            None => crate::pick::FileDialog::new().set_title("Attach a file").pick_file().and_then(|p| {
                 let data = std::fs::read(&p).ok()?;
                 Some((p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), data))
             }),

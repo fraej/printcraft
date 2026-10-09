@@ -219,7 +219,7 @@ pub(crate) fn pages_body(ui: &mut egui::Ui, d: &mut PagesDraft, pages: usize, _t
 
 /// Find text and redact. Returns (search, cancel).
 pub(crate) fn search_body(ui: &mut egui::Ui, d: &mut SearchDraft, t: &Tokens) -> (bool, bool) {
-    ui.set_width(420.0);
+    crate::compact::fit_width(ui, 420.0);
     ui.label(egui::RichText::new("Find text and redact").font(crate::theme::semibold(18.0)));
     ui.add_space(8.0);
     ui.radio_value(&mut d.patterns, false, "Single word or phrase");
@@ -251,7 +251,7 @@ pub(crate) fn search_body(ui: &mut egui::Ui, d: &mut SearchDraft, t: &Tokens) ->
 
 /// Redaction Tool Properties. Returns (apply, cancel).
 pub(crate) fn props_body(ui: &mut egui::Ui, d: &mut RedactPrefs, _t: &Tokens) -> (bool, bool) {
-    ui.set_width(380.0);
+    crate::compact::fit_width(ui, 380.0);
     ui.label(egui::RichText::new("Redaction Tool Properties").font(crate::theme::semibold(18.0)));
     ui.add_space(8.0);
     egui::Grid::new("redact-props").num_columns(2).spacing([12.0, 10.0]).show(ui, |ui| {
@@ -324,7 +324,7 @@ pub(crate) fn props_body(ui: &mut egui::Ui, d: &mut RedactPrefs, _t: &Tokens) ->
 
 /// Apply redactions confirmation. Returns (apply, cancel).
 pub(crate) fn apply_body(ui: &mut egui::Ui, marks: usize, t: &Tokens) -> (bool, bool) {
-    ui.set_width(420.0);
+    crate::compact::fit_width(ui, 420.0);
     ui.label(egui::RichText::new("Apply redactions").font(crate::theme::semibold(18.0)));
     ui.add_space(8.0);
     ui.label(format!(
@@ -372,7 +372,7 @@ impl PrintCraftApp {
 
 /// Returns (remove, cancel).
 pub(crate) fn hidden_body(ui: &mut egui::Ui, d: &mut HiddenDraft, t: &Tokens) -> (bool, bool) {
-    ui.set_width(440.0);
+    crate::compact::fit_width(ui, 440.0);
     ui.label(egui::RichText::new("Remove hidden information").font(crate::theme::semibold(18.0)));
     ui.add_space(4.0);
     ui.label(egui::RichText::new("Select the items to remove from this document.").color(t.text_muted));
@@ -408,7 +408,7 @@ pub(crate) fn hidden_body(ui: &mut egui::Ui, d: &mut HiddenDraft, t: &Tokens) ->
 
 /// Sanitize Document confirmation. Returns (sanitize, cancel).
 pub(crate) fn sanitize_body(ui: &mut egui::Ui, t: &Tokens) -> (bool, bool) {
-    ui.set_width(440.0);
+    crate::compact::fit_width(ui, 440.0);
     ui.label(egui::RichText::new("Sanitize document").font(crate::theme::semibold(18.0)));
     ui.add_space(8.0);
     ui.label("Sanitizing removes hidden information from the document: metadata, file attachments, comments, form fields (flattened), hidden text and layers, bookmarks, links, actions and scripts, and private application data.");

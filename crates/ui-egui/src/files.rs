@@ -118,7 +118,7 @@ impl PrintCraftApp {
     fn pick_files(&mut self, purpose: FilePurpose, multiple: bool) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let dialog = rfd::FileDialog::new().add_filter("PDF", &["pdf"]);
+            let dialog = crate::pick::FileDialog::new().add_filter("PDF", &["pdf"]);
             let paths = if multiple { dialog.pick_files().unwrap_or_default() } else { dialog.pick_file().into_iter().collect() };
             let mut files = Vec::new();
             for p in paths {
@@ -255,7 +255,7 @@ impl PrintCraftApp {
         {
             let dir = match &self.export_dir_override {
                 Some(d) => Some(std::path::PathBuf::from(d)),
-                None => rfd::FileDialog::new().set_title(title).pick_folder(),
+                None => crate::pick::FileDialog::new().set_title(title).pick_folder(),
             };
             let Some(dir) = dir else { return 0 };
             for (name, bytes) in named {
@@ -372,7 +372,7 @@ impl PrintCraftApp {
             let picked = match self.save_override.clone() {
                 Some(p) if [".xfdf", ".fdf", ".xml", ".csv", ".txt"].iter().any(|e| p.ends_with(e)) => Some(std::path::PathBuf::from(p)),
                 Some(_) => None,
-                None => rfd::FileDialog::new()
+                None => crate::pick::FileDialog::new()
                     .add_filter("Comment and form data", &["xfdf", "fdf", "xml", "csv", "txt"])
                     .set_title("Import data")
                     .pick_file(),
@@ -402,7 +402,7 @@ impl PrintCraftApp {
         {
             let path = match self.save_override.clone() {
                 Some(p) => Some(std::path::PathBuf::from(p)),
-                None => rfd::FileDialog::new()
+                None => crate::pick::FileDialog::new()
                     .set_title("Export")
                     .add_filter(ext.to_uppercase(), &[ext])
                     .set_file_name(format!("{stem}.{ext}"))
@@ -425,7 +425,7 @@ impl PrintCraftApp {
     pub fn merge_data_dialog(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let paths = rfd::FileDialog::new()
+            let paths = crate::pick::FileDialog::new()
                 .set_title("Select data files to merge")
                 .add_filter("Form data and PDF forms", &["fdf", "xfdf", "pdf"])
                 .pick_files()
@@ -456,7 +456,11 @@ impl PrintCraftApp {
         {
             let path = match self.save_override.clone() {
                 Some(p) => Some(std::path::PathBuf::from(p)),
-                None => rfd::FileDialog::new().set_title("Save the spreadsheet").add_filter("CSV", &["csv"]).set_file_name("report.csv").save_file(),
+                None => crate::pick::FileDialog::new()
+                    .set_title("Save the spreadsheet")
+                    .add_filter("CSV", &["csv"])
+                    .set_file_name("report.csv")
+                    .save_file(),
             };
             let Some(path) = path else { return };
             match crate::editing::write_atomically(&path.to_string_lossy(), csv.as_bytes()) {
@@ -477,7 +481,7 @@ impl PrintCraftApp {
             let path = match self.save_override.clone() {
                 Some(p) => Some(std::path::PathBuf::from(p)),
                 None => {
-                    let d = rfd::FileDialog::new()
+                    let d = crate::pick::FileDialog::new()
                         .set_title(if comments { "Export comments" } else { "Export form data" })
                         .set_file_name(format!("{stem}.xfdf"));
                     let d = if comments {

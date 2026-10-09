@@ -177,7 +177,7 @@ impl PrintCraftApp {
                     #[cfg(not(target_arch = "wasm32"))]
                     None => {
                         let stem = name.trim_end_matches(".pdf").trim_end_matches(".PDF");
-                        rfd::FileDialog::new().add_filter("PDF", &["pdf"]).set_file_name(format!("{stem} (print).pdf")).save_file()
+                        crate::pick::FileDialog::new().add_filter("PDF", &["pdf"]).set_file_name(format!("{stem} (print).pdf")).save_file()
                     }
                     #[cfg(target_arch = "wasm32")]
                     None => None,
@@ -217,7 +217,7 @@ pub(crate) fn body(
     labels: &[String],
     thumb: &dyn Fn(usize) -> Option<egui::TextureId>,
 ) -> (bool, bool) {
-    ui.set_width(820.0);
+    crate::compact::fit_width(ui, 820.0);
     ui.label(egui::RichText::new("Print").font(theme::semibold(18.0)));
     ui.add_space(8.0);
     let settings = d.settings(sizes.len(), labels);

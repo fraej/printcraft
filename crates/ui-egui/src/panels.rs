@@ -16,9 +16,13 @@ fn hue(g: &ToolGroup) -> Color32 {
 
 pub fn left_panel(app: &mut PrintCraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
-    egui::Panel::left("tool_panel")
-        .resizable(false)
-        .exact_size(272.0)
+    // The phone layout shows it as a sheet over the lower part of the screen.
+    let panel = if app.compact {
+        egui::Panel::bottom("tool_panel").resizable(false).exact_size(crate::compact::sheet_height(ui.ctx()))
+    } else {
+        egui::Panel::left("tool_panel").resizable(false).exact_size(272.0)
+    };
+    panel
         .frame(
             egui::Frame::NONE
                 .fill(t.panel)
@@ -383,10 +387,12 @@ pub fn right_panel(app: &mut PrintCraftApp, ui: &mut egui::Ui) {
         let a11y = &mut app.a11y;
         let compare = &app.compare;
         let comment_allowed = doc.allows_annotation();
-        egui::Panel::right("right_panel")
-            .resizable(true)
-            .default_size(330.0)
-            .size_range(260.0..=520.0)
+        let container = if app.compact {
+            egui::Panel::bottom("right_panel").resizable(false).exact_size(crate::compact::sheet_height(ui.ctx()))
+        } else {
+            egui::Panel::right("right_panel").resizable(true).default_size(330.0).size_range(260.0..=520.0)
+        };
+        container
             .frame(
                 egui::Frame::NONE
                     .fill(t.panel)

@@ -193,7 +193,7 @@ impl PrintCraftApp {
         {
             let dir = match &self.export_dir_override {
                 Some(d) => Some(std::path::PathBuf::from(d)),
-                None => rfd::FileDialog::new().set_title("Choose a folder for the exported files").pick_folder(),
+                None => crate::pick::FileDialog::new().set_title("Choose a folder for the exported files").pick_folder(),
             };
             let Some(dir) = dir else { return };
             let st = status.clone();

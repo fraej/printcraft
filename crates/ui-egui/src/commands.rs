@@ -20,7 +20,11 @@ impl PrintCraftApp {
     /// Last-resort guard (AGENTS.md §4): a command that panics is reported and the app, with its
     /// open documents, keeps running. Edits are applied to a copy, so the document is unchanged.
     pub fn execute(&mut self, id: &str) -> bool {
-        match printcraft_engine::guard(|| self.execute_unguarded(id)) {
+        // File dialogs opened by this command run it again once answered (Android).
+        let outer = crate::pick::set_context(Some(id.to_string()));
+        let result = printcraft_engine::guard(|| self.execute_unguarded(id));
+        crate::pick::set_context(outer);
+        match result {
             Ok(done) => done,
             Err(m) => {
                 self.notify(format!("That didn't work: an internal error stopped it ({m}). Your documents are unchanged."));

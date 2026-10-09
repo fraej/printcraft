@@ -193,7 +193,7 @@ impl PrintCraftApp {
         #[cfg(not(target_arch = "wasm32"))]
         let dir = match &self.export_dir_override {
             Some(d) => Some(std::path::PathBuf::from(d)),
-            None => rfd::FileDialog::new().set_title("Choose a folder for the searchable files").pick_folder(),
+            None => crate::pick::FileDialog::new().set_title("Choose a folder for the searchable files").pick_folder(),
         };
         #[cfg(not(target_arch = "wasm32"))]
         let Some(dir) = dir else { return };

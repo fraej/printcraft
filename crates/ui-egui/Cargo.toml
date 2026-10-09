@@ -13,19 +13,25 @@ printcraft-engine = { workspace = true }
 printcraft-render = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true }
-eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "persistence", "links"] }
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "persistence", "links"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
-
-rfd = { workspace = true }
 png = "0.18"
 base64 = "0.22"
+
+# Android has no file dialog to wait on: the in-app browser answers instead (src/pick.rs).
+[target.'cfg(not(target_os = "android"))'.dependencies]
+rfd = { workspace = true }
+# Screen readers. On Android eframe offers it only with GameActivity (PrintCraft uses NativeActivity).
+eframe = { workspace = true, features = ["accesskit"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Control-channel tokens.
 getrandom = "0.4"
-# Create ▸ Clipboard (images; already in the tree through egui-winit).
+
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
+# Create ▸ Clipboard (images; already in the tree through egui-winit). No Android backend.
 arboard = { version = "3.6", default-features = false, features = ["image-data"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
